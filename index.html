@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>MIS Khasra Search</title>
+<style>
+  body{font-family:Inter, system-ui, Arial; max-width:980px; margin:18px auto; padding:12px;}
+  h1{font-size:20px; margin-bottom:6px;}
+  .row{display:flex; gap:8px; align-items:center; margin-bottom:8px;}
+  select, input[type="text"]{padding:8px; font-size:14px;}
+  button{padding:8px 12px; font-size:14px; cursor:pointer;}
+  #result{margin-top:14px; border:1px solid #ddd; padding:12px; border-radius:6px; background:#fafafa;}
+  table{border-collapse:collapse; width:100%}
+  td, th{border:1px solid #ddd; padding:6px; text-align:left}
+  .small{font-size:13px; color:#555}
+  .inline{display:inline-block}
+  .muted{color:#666; font-size:13px}
+</style>
+</head>
+<body>
+<h1>MIS Khasra Search</h1>
+<p class="muted">Select State → District → Tehsil → Village → Khasra. The page shows all details for the selected record. You can download as PDF via your browser's Print → Save as PDF.</p>
+
+<div class="row">
+  <select id="state"><option value="">State</option></select>
+  <select id="district"><option value="">District</option></select>
+  <select id="tehsil"><option value="">Tehsil</option></select>
+  <select id="village"><option value="">Village</option></select>
+  <select id="khasra"><option value="">Khasra</option></select>
+</div>
+
+<div class="row">
+  <input type="text" id="quick" placeholder="Or type Khasra number and press Enter" style="flex:1"/>
+  <button id="clear">Clear</button>
+  <button id="print">Print / Save as PDF</button>
+</div>
+
+<div id="result" aria-live="polite">
+  <div class="small">No selection yet.</div>
+</div>
+
+<script>
+let data = [];
+async function loadData(){
+  const resp = await fetch('data.json');
+  data = await resp.json();
+  populateStates();
+}
+function unique(arr){ return Array.from(new Set(arr)).sort((a,b)=>a.localeCompare(b)); }
+function populateStates(){
+  const states = unique(data.map(r=>r['STATE']||'').filter(Boolean));
+  const s = document.getElementById('state');
+  states.forEach(v=> s.appendChild(new Option(v,v)));
+}
+function filterOptions(){
+  const state = document.getElementById('state').value;
+  const district = document.getElementById('district').value;
+  const tehsil = document.getElementById('tehsil').value;
+  const village = document.getElementById('village').value;
+  // districts
+  const dList = unique(data.filter(r=> !state || r['STATE']===state).map(r=>r['DISTRICT']).filter(Boolean));
+  fillSelect('district', dList, district);
+  const tList = unique(data.filter(r=> (!state||r['STATE']===state) && (!document.getElementById('district').value|| r['DISTRICT']===document.getElementById('district').value)).map(r=>r['TEHSIL']).filter(Boolean));
+  fillSelect('tehsil', tList, tehsil);
+  const vList = unique(data.filter(r=> (!state||r['STATE']===state) && (!document.getElementById('district').value|| r['DISTRICT']===document.getElementById('district').value) && (!document.getElementById('tehsil').value|| r['TEHSIL']===document.getElementById('tehsil').value)).map(r=>r['VILLAGE']).filter(Boolean));
+  fillSelect('village', vList, village);
+  const kList = unique(data.filter(r=> (!state||r['STATE']===state) && (!document.getElementById('district').value|| r['DISTRICT']===document.getElementById('district').value) && (!document.getElementById('tehsil').value|| r['TEHSIL']===document.getElementById('tehsil').value) && (!document.getElementById('village').value|| r['VILLAGE']===document.getElementById('village').value)).map(r=>r['KHASRA']).filter(Boolean));
+  fillSelect('khasra', kList, document.getElementById('khasra').value);
+  showResultIfExact();
+}
+function fillSelect(id, items, preserve){
+  const sel = document.getElementById(id);
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">'+id.charAt(0).toUpperCase()+id.slice(1)+'</option>';
+  items.forEach(v=> sel.appendChild(new Option(v,v)));
+  if (preserve) sel.value = preserve;
+  else if (items.includes(cur)) sel.value = cur;
+}
+function showResultIfExact(){
+  const state = document.getElementById('state').value;
+  const district = document.getElementById('district').value;
+  const tehsil = document.getElementById('tehsil').value;
+  const village = document.getElementById('village').value;
+  const khasra = document.getElementById('khasra').value;
+  if (state && district && tehsil && village && khasra){
+    const rec = data.find(r=> r['STATE']===state && r['DISTRICT']===district && r['TEHSIL']===tehsil && r['VILLAGE']===village && r['KHASRA']===khasra);
+    if (rec) renderRecord(rec);
+    else document.getElementById('result').innerHTML = '<div class="small">No record found for this exact selection.</div>';
+  } else {
+    document.getElementById('result').innerHTML = '<div class="small">Please select State → District → Tehsil → Village → Khasra.</div>';
+  }
+}
+function renderRecord(r){
+  let html = '<h3>Khasra: ' + (r['KHASRA']||'') + '</h3>';
+  html += '<table>';
+  for (const k of Object.keys(r)){
+    html += '<tr><th>'+k+'</th><td>'+ (r[k]||'') + '</td></tr>';
+  }
+  html += '</table>';
+  document.getElementById('result').innerHTML = html;
+}
+document.getElementById('state').addEventListener('change', filterOptions);
+document.getElementById('district').addEventListener('change', filterOptions);
+document.getElementById('tehsil').addEventListener('change', filterOptions);
+document.getElementById('village').addEventListener('change', filterOptions);
+document.getElementById('khasra').addEventListener('change', showResultIfExact);
+document.getElementById('clear').addEventListener('click', ()=>{
+  document.getElementById('state').value=''; document.getElementById('district').value=''; document.getElementById('tehsil').value=''; document.getElementById('village').value=''; document.getElementById('khasra').value=''; document.getElementById('quick').value=''; filterOptions();
+});
+document.getElementById('print').addEventListener('click', ()=> window.print());
+
+document.getElementById('quick').addEventListener('keydown', function(e){
+  if (e.key === 'Enter'){
+    const q = this.value.trim();
+    if (!q) return;
+    // find first record with matching KHASRA
+    const rec = data.find(r=> r['KHASRA']===q);
+    if (rec){
+      // set selects to match
+      document.getElementById('state').value = rec['STATE'];
+      filterOptions();
+      document.getElementById('district').value = rec['DISTRICT']; filterOptions();
+      document.getElementById('tehsil').value = rec['TEHSIL']; filterOptions();
+      document.getElementById('village').value = rec['VILLAGE']; filterOptions();
+      document.getElementById('khasra').value = rec['KHASRA']; showResultIfExact();
+    } else {
+      document.getElementById('result').innerHTML = '<div class="small">No record found with that Khasra number.</div>';
+    }
+  }
+});
+
+loadData();
+</script>
+</body>
+</html>
